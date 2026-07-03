@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Nissan Report Tool</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main>
+    <h1>Nissan Monthly Report Export</h1>
+    <p>Pick a date range, then export the Jira data as an Excel workbook or the Service Management Monthly Report PowerPoint.</p>
+
+    <form id="export-form">
+      <label>
+        Start date
+        <input type="date" name="start_date" required />
+      </label>
+      <label>
+        End date
+        <input type="date" name="end_date" required />
+      </label>
+      <div class="actions">
+        <button type="submit" formaction="/export/excel">Export Excel</button>
+        <button type="submit" formaction="/export/pptx">Export PowerPoint</button>
+      </div>
+    </form>
+    <p id="status"></p>
+  </main>
+
+  <script>
+    const form = document.getElementById("export-form");
+    const statusEl = document.getElementById("status");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submitter = event.submitter;
+      const action = submitter.getAttribute("formaction");
+      statusEl.textContent = "Generating report, this can take a moment...";
+
+      const response = await fetch(action, { method: "POST", body: new FormData(form) });
+      if (!response.ok) {
+        statusEl.textContent = `Failed: ${response.status} ${await response.text()}`;
+        return;
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="(.+)"/);
+      const filename = match ? match[1] : "report";
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      statusEl.textContent = "Done — check your downloads.";
+    });
+  </script>
+</body>
+</html>

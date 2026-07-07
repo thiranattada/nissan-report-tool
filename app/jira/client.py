@@ -18,26 +18,33 @@ class JiraClient:
         self.session.headers.update({"Accept": "application/json"})
 
     def search(self, jql: str, fields: list[str]) -> Iterator[dict]:
-        """Yields every issue matching jql, handling pagination transparently."""
-        start_at = 0
-        total = None
-        while total is None or start_at < total:
-            payload = self._search_page(jql, fields, start_at)
-            total = payload["total"]
-            issues = payload["issues"]
+        """Yields every issue matching jql, handling pagination transparently.
+        Uses the token-based /rest/api/3/search/jql endpoint — Atlassian
+        removed the old startAt/total-based /rest/api/3/search on 1 May 2025
+        (it now returns 410 Gone)."""
+        next_page_token = None
+        while True:
+            payload = self._search_page(jql, fields, next_page_token)
+            issues = payload.get("issues", [])
             if not issues:
                 break
             yield from issues
-            start_at += len(issues)
+            next_page_token = payload.get("nextPageToken")
+            # Jira Cloud has a documented bug on some sites where
+            # nextPageToken/isLast never signal completion; a short page is
+            # a reliable stop condition regardless of that.
+            if not next_page_token or len(issues) < PAGE_SIZE:
+                break
 
-    def _search_page(self, jql: str, fields: list[str], start_at: int) -> dict:
-        url = f"{self.base_url}/rest/api/3/search"
+    def _search_page(self, jql: str, fields: list[str], next_page_token: str | None) -> dict:
+        url = f"{self.base_url}/rest/api/3/search/jql"
         body = {
             "jql": jql,
             "fields": fields,
-            "startAt": start_at,
             "maxResults": PAGE_SIZE,
         }
+        if next_page_token:
+            body["nextPageToken"] = next_page_token
         for attempt in range(MAX_RETRIES):
             resp = self.session.post(url, json=body)
             if resp.status_code == 429 or resp.status_code >= 500:
